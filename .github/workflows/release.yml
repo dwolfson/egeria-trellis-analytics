@@ -1,0 +1,48 @@
+name: Publish to PyPI and Release
+
+on:
+  push:
+    tags:
+      - 'v*'   # a maintainer pushes v<version> on odpi/egeria-trellis-analytics
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Tag matches the package version
+        run: |
+          v=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/trellis_analytics/__init__.py)
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} is not v$v"; exit 1; }
+      - name: Tests
+        run: |
+          uv venv -p 3.13
+          uv pip install -e ".[dev]"
+          uv run --no-sync pytest -q -rs
+
+  build-n-publish:
+    name: Build and Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write   # trusted publishing (OIDC); the PyPI project trusts this workflow and environment
+      contents: write   # the GitHub release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Build package
+        run: uv build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

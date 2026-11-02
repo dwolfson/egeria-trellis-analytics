@@ -1,0 +1,49 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }}, pyegeria ${{ matrix.pyegeria }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+        # The floor the package declares, and the newest release: a change that needs a newer pyegeria fails the floor.
+        pyegeria: ["floor", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Install (editable, with the dev extra)
+        run: |
+          uv venv -p ${{ matrix.python-version }}
+          uv pip install -e ".[dev]"
+          if [ "${{ matrix.pyegeria }}" = "floor" ]; then uv pip install "pyegeria==6.2.19"; fi
+          uv pip show pyegeria | grep -i '^version'
+      - name: Tests (no Resource Explorer, no Postgres, no Egeria)
+        run: uv run --no-sync pytest -q -rs
+
+  wheel:
+    # Discovery must work from the built wheel, not only from the source tree: install the wheel alone and run the
+    # suite against it (the tests import trellis_analytics from site-packages; src/ is not on the path).
+    name: Built wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build
+        run: uv build
+      - name: Install the wheel into a fresh environment and test it
+        run: |
+          uv venv -p 3.13 /tmp/wheel-venv
+          VIRTUAL_ENV=/tmp/wheel-venv uv pip install dist/*.whl pytest
+          /tmp/wheel-venv/bin/python -c "import trellis_analytics, sys; assert 'site-packages' in trellis_analytics.__file__, trellis_analytics.__file__"
+          /tmp/wheel-venv/bin/python -m pytest -q -rs

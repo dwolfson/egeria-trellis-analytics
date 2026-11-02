@@ -1,0 +1,51 @@
+[project]
+name = "egeria-trellis-analytics"
+dynamic = ["version"]
+description = "Analytic Library: routines and steps with an honest result envelope (measured / nothing found / not established / not applicable), discovered through the pyegeria.analytics entry point. Installed by Resource Explorer and by the Egeria Portal."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Dan Wolfson" }]
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    # The library's core needs pyegeria only (brief LS2 §0): manifests subclass pyegeria's AnalyticFunctionSpec, the
+    # Portal tile is a pyegeria FormatSet, and pydantic comes with pyegeria. Anything of Resource Explorer's is reached
+    # through the trellis_analytics.readers entry-point group, which RE registers; nothing here imports it.
+    # 6.2.19: reads the pyegeria.analytics and pyegeria.report_specs groups and refuses a dotted analytic_function path.
+    "pyegeria>=6.2.19",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3.0"]
+
+[project.urls]
+Repository = "https://github.com/odpi/egeria-trellis-analytics"
+Issues = "https://github.com/odpi/egeria-trellis-analytics/issues"
+
+# Installation is registration: every manifest the library ships is an entry point, and a report spec names it by its
+# registered name.
+[project.entry-points."pyegeria.analytics"]
+curation_coverage = "trellis_analytics.manifests:CURATION_COVERAGE"
+context_pack = "trellis_analytics.manifests:CONTEXT_PACK"
+curation_coverage_tile = "trellis_analytics.manifests:CURATION_COVERAGE_TILE"
+
+# The library's report specs (the Portal tile). pyegeria reads this group (ISSUE-173), so installing the package
+# registers the spec.
+[project.entry-points."pyegeria.report_specs"]
+trellis = "trellis_analytics.portal:report_specs"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/trellis_analytics/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/trellis_analytics"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/trellis_analytics", "tests", "examples", "docs", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
