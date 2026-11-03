@@ -21,7 +21,7 @@ SRC = ROOT / "src" / "trellis_analytics"
 MOVING = sorted(str(p.relative_to(SRC)) for p in SRC.rglob("*.py"))
 CATALOGUE_WORDS = "no reader for Resource Explorer's catalogue is installed here"
 #: The implementations that stay behind (RE's), which the moving modules must not import.
-STAYS = ("resource_explorer", "trellis_analytics.readers.ods", "trellis_analytics.readers.registry_view", "psycopg2")
+STAYS = ("resource_explorer", "trellis_analytics_re", "trellis_analytics.readers.ods", "trellis_analytics.readers.registry_view", "psycopg2")
 
 
 @pytest.fixture
@@ -85,9 +85,39 @@ def test_importing_the_library_resolves_no_reader():
     mods = ["trellis_analytics." + p.removesuffix(".py").removesuffix("/__init__").replace("/", ".")
             for p in MOVING if p != "__init__.py"]
     code = ("import sys\n" + "".join(f"import {m}\n" for m in mods) +
-            f"print(sorted(m for m in sys.modules if m.startswith({STAYS[:3]!r})))")
+            f"print(sorted(m for m in sys.modules if m.startswith({STAYS[:4]!r})))")
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True).stdout.strip()
     assert out == "[]"
+
+
+#: A child interpreter in which RE and its reader package cannot be imported at all, as on a Portal without RE.
+WITHOUT_RE = """
+import importlib.abc, sys
+class _Absent(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in ("resource_explorer", "trellis_analytics_re"):
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+sys.meta_path.insert(0, _Absent())
+"""
+
+
+def test_the_routine_and_the_tile_import_and_run_with_re_absent():
+    """The Portal imports the routine with no RE installed. Its module level (and the tile's) must name only the seam, so
+    the import succeeds; a run then answers not_established instead of raising."""
+    import subprocess
+    import sys
+    code = WITHOUT_RE + (
+        "from trellis_analytics.routines import curation_coverage\n"
+        "from trellis_analytics.portal import curation_coverage_tile\n"
+        "class Unread:\n"
+        "    def __getattr__(self, name): raise AssertionError(name)\n"
+        "r = curation_coverage(Unread(), 'database', 'demo')\n"
+        "t = curation_coverage_tile('demo', 'sqlite:///never-opened')\n"
+        "print(r.envelope.result_state.value, t['state'])\n")
+    run = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert run.returncode == 0, run.stderr
+    nes = ResultState.NOT_ESTABLISHED.value
+    assert run.stdout.split() == [nes, nes]
 
 
 def _imports(path: Path):
