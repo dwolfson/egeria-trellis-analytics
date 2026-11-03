@@ -10,7 +10,7 @@ from trellis_analytics.portal import TILE_FUNCTION  # noqa: E402
 
 
 @pytest.mark.parametrize("name", [
-    TILE_FUNCTION,                                   # the Portal tile's FormatSet (portal.py, examples/curation_coverage_tile.md)
+    TILE_FUNCTION,                                   # the Portal tile's FormatSet (portal.py, trellis_analytics/examples/curation_coverage_tile.md)
     "trellis_analytics.routines.curation_coverage",  # the walking-skeleton brief's spelling
     CURATION_COVERAGE.function, CONTEXT_PACK.function, CURATION_COVERAGE_TILE.function,
     "curation_coverage", "context_pack", "curation_coverage_tile",   # registry names, from the pyegeria.analytics entry points
@@ -36,14 +36,14 @@ def test_a_registered_name_resolves_to_the_tile_function(monkeypatch):
 
 def test_every_report_spec_the_library_ships_names_a_registered_function():
     """Q2(b), project owner 2026-10-31: a report spec names its function by registered name, never a Python path --
-    portal.report_specs() and the Dr.Egeria document of the same spec (examples/curation_coverage_tile.md)."""
-    from pathlib import Path
+    portal.report_specs() and the Dr.Egeria document of the same spec (trellis_analytics/examples/curation_coverage_tile.md)."""
+    from importlib.resources import files
 
     from pyegeria.view.analytic_registry import get_analytic_registry
     from trellis_analytics.portal import report_specs
     registered = set(get_analytic_registry())
     named = [fs.action.analytic_function for fs in report_specs().values()]
-    doc = (Path(__file__).resolve().parents[1] / "examples" / "curation_coverage_tile.md").read_text()
+    doc = (files("trellis_analytics") / "examples" / "curation_coverage_tile.md").read_text()   # as installed
     named.append(doc.split("### Analytic Function\n", 1)[1].split("\n", 1)[0].strip())
     assert named == [TILE_FUNCTION, TILE_FUNCTION]
     assert all("." not in n and n in registered for n in named)
@@ -56,3 +56,11 @@ def test_a_report_spec_naming_a_dotted_path_is_refused_a_registered_name_is_not(
     assert callable(resolve(TILE_FUNCTION))
     with pytest.raises(fse.AnalyticFunctionRefused, match="curation_coverage_tile"):
         resolve(CURATION_COVERAGE_TILE.function)
+
+
+def test_the_hosts_examples_ship_in_the_package():
+    """Architect ruling, 2026-11-03: the notebook and the tile spec are package data and this repository holds the
+    only copy. Trellis runs both against RE's readers, loading them from the installed distribution."""
+    from importlib.resources import files
+    ex = files("trellis_analytics") / "examples"
+    assert {"curation_coverage.ipynb", "curation_coverage_tile.md"} <= {p.name for p in ex.iterdir()}

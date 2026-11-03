@@ -45,7 +45,7 @@ path = "src/trellis_analytics/__init__.py"
 packages = ["src/trellis_analytics"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/trellis_analytics", "tests", "examples", "README.md", "LICENSE"]
+include = ["src/trellis_analytics", "tests", "README.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

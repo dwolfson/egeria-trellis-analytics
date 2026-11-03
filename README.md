@@ -201,8 +201,8 @@ The same routine can run in three places. None counts anything of its own; each 
 | Host | How |
 |---|---|
 | **Script** | `curation_coverage(open_reader(ODS, url), "database", slug)`, as under "Writing a routine" (Resource Explorer installed, for its readers). |
-| **Notebook** | `examples/curation_coverage.ipynb`, run with papermill and the parameters `slug` and `ods_url`: `papermill examples/curation_coverage.ipynb out.ipynb -p slug coco_pharma -p ods_url <url>`. An empty `ods_url` reads `REGISTRY_DATABASE_URL`. |
-| **Portal tile** | The registered function `curation_coverage_tile`, shown as **Trellis - Curation Coverage** in the Egeria Portal. Installing this package registers the function and the tile's report spec; there is nothing to set (see "How analytics are found"). `examples/curation_coverage_tile.md` is the same spec as a Dr.Egeria report-spec document. |
+| **Notebook** | `curation_coverage.ipynb`, shipped in the package (`src/trellis_analytics/examples/`), run with papermill and the parameters `slug` and `ods_url`: `papermill "$(python -c 'from importlib.resources import files; print(files("trellis_analytics") / "examples" / "curation_coverage.ipynb")')" out.ipynb -p slug coco_pharma -p ods_url <url>`. An empty `ods_url` reads `REGISTRY_DATABASE_URL`. |
+| **Portal tile** | The registered function `curation_coverage_tile`, shown as **Trellis - Curation Coverage** in the Egeria Portal. Installing this package registers the function and the tile's report spec; there is nothing to set (see "How analytics are found"). `curation_coverage_tile.md`, shipped beside the notebook, is the same spec as a Dr.Egeria report-spec document. |
 
 A **step** is run by RE itself: RE's `survey_step_host` attaches installed steps beside the built-in ones, so the
 executor runs them the same way and records their cost. The step's annotations are kept, with their envelope, in
