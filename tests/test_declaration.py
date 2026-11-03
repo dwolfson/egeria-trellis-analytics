@@ -1,9 +1,6 @@
 """The declaration (DESIGN-DECLARED-EXTENSIBILITY-RENDERING-CHAT-CONFIDENCE §1/§2/§4): what it accepts, what it
-refuses and in what words, how a step manifest carries it, and that every library step declares one in full."""
-import importlib
-import sys
-from pathlib import Path
-
+refuses and in what words, and how a step manifest carries it. That every reference step declares one in full is tested
+with the steps, in trellis (until LS2b)."""
 import pytest
 from pydantic import ValidationError
 from trellis_analytics.declaration import (
@@ -16,8 +13,6 @@ from trellis_analytics.declaration import (
 )
 from trellis_analytics.manifest import StepManifest
 
-STEPS = Path(__file__).resolve().parents[1] / "examples" / "steps"
-LIBRARY_STEPS = ("database_staleness", "hub_tables", "change_rates", "statistics_freshness")
 
 ABSENCE = {s: f"{s.replace('_', ' ')}: a sentence" for s in ABSENCE_STATES}
 MEASURE = {"name": "s", "unit": "tables", "as_of": "asOf", "value_field": "count"}
@@ -199,18 +194,6 @@ def test_a_manifest_without_a_declaration_still_loads():
     assert StepManifest(**BASE).declaration is None
 
 
-@pytest.mark.parametrize("name", LIBRARY_STEPS)
-def test_every_library_step_declares_in_full(monkeypatch, name):
-    monkeypatch.syspath_prepend(str(STEPS / name / "src"))
-    for mod in [k for k in sys.modules if k == name or k.startswith(name + ".")]:
-        monkeypatch.delitem(sys.modules, mod)
-    m = importlib.import_module(f"{name}.manifest").MANIFEST
-    d = m.declaration
-    assert d is not None and d.missing() == [], name
-    assert [x.name for x in d.measures] == m.measure_names()
-    assert d.answers == m.questions
-
-
 # ── the owner's answers of 2026-10-28: per-measure confidence, not built ────
 
 def test_a_measure_may_carry_its_own_confidence_and_the_headline_is_the_weakest():
@@ -345,30 +328,3 @@ def test_a_proposal_starts_as_proposed():
     assert "first decision state is not 'proposed'" in refused(minimum(
         result_kind="proposal", proposal={"candidate_field": "c", "decided_by": "curator",
                                           "decision_states": ["accepted"]}))
-
-
-def _load_step(name):
-    mp = pytest.MonkeyPatch()
-    mp.syspath_prepend(str(STEPS / name / "src"))
-    for mod in [k for k in sys.modules if k == name or k.startswith(name + ".")]:
-        mp.delitem(sys.modules, mod)
-    try:
-        return importlib.import_module(f"{name}.manifest").MANIFEST
-    finally:
-        mp.undo()
-
-
-def test_automatic_is_refused_for_a_proposal_whatever_the_annotation_type():
-    hub = _load_step("hub_tables")
-    for atype in ("ClassificationAnnotation", "ResourceMeasureAnnotation"):
-        body = hub.model_dump()
-        body["declaration"]["proposal"]["decided_by"] = "automatic"
-        if atype != "ClassificationAnnotation":
-            body["annotation_type"] = atype
-            body["measure_annotation_types"] = {}
-            body["declaration"]["measures"][1]["annotation"] = None
-        with pytest.raises(ValidationError) as exc:
-            StepManifest.model_validate(body)
-        assert "proposals are decided by a person in Curate (ruling 2026-10-15); no automatic path exists" in refusal(exc.value)
-    body = hub.model_dump()
-    assert body["declaration"]["proposal"]["decided_by"] == "curator" and StepManifest.model_validate(body)

@@ -149,25 +149,19 @@ What the wrapper guarantees, so the code does not have to:
 - **An envelope on every result.** A result with no state, an unknown state, or no reason where one is required
   is refused, and **nothing from that run is stored**: a partial store would read as the whole answer.
 
-A complete example, installable on its own, is `examples/steps/database_staleness/`. It registers itself
-through the same `pyegeria.analytics` entry point. The ten reference steps under `examples/steps/` are members of the
-repo's uv workspace (R19), so a plain `uv sync` at the repo root installs and keeps them; a step of your own outside
-the repo is installed with `uv pip install -e` or `uv run --with-editable`.
+**The reference steps live in trellis until LS2b.** The ten reference steps (database_staleness, hub_tables,
+change_rates, statistics_freshness, the six file-system steps and schema_comparison) are in the trellis monorepo,
+`packages/trellis-analytics/examples/steps/`, each installable on its own and registered through the same
+`pyegeria.analytics` entry point; `database_staleness` is the complete example to copy, and trellis's
+[step tutorial](https://github.com/odpi/egeria-trellis/blob/main/packages/trellis-analytics/docs/TUTORIAL-ADD-AN-ANALYTIC-STEP-2026-10-30.md)
+walks through it. LS2b ships them as one
+distribution, `egeria-trellis-steps`. This repository carries no copy of them: its tests use one fixture step
+(`tests/fixtures/ta_fixture_step`), never installed. A step of your own is installed with `pip install -e` (or
+`uv pip install -e`), and installing it registers it.
 
-RE merges an installed step's manifest into its analysis catalog when it reads it, so a step needs no commit in RE to
-show a card. To tell Egeria about it, and optionally to refresh the committed fallback entry that keeps a package-less
-environment aware of the step, run the two generators from the repo root. The first writes the
-catalog entry into `analysis_catalog.yaml` (between its GENERATED markers); the second writes the step's Egeria
-declaration into `packages/resource-explorer/docs/dr-egeria/engine-host/library/<step>.md` (see below). Neither
-talks to Egeria; running the declaration is a separate, deliberate step.
-
-```bash
-uv sync    # the reference steps are workspace members; this installs them all
-uv run python packages/resource-explorer/scripts/generate_external_step_entries.py
-uv run python packages/resource-explorer/scripts/generate_engine_host_declaration.py
-```
-
-For a step outside the workspace, add `--with-editable <its package>` after `uv run`.
+Resource Explorer merges an installed step's manifest into its analysis catalog when it reads it, so a step needs no
+commit in RE to show a card. RE's two generators (in trellis, `packages/resource-explorer/scripts/`) write the step's
+fallback catalog entry and its Egeria declaration; neither talks to Egeria.
 
 ### Dispatched by Egeria
 
@@ -205,7 +199,7 @@ The same routine can run in three places. None counts anything of its own; each 
 
 | Host | How |
 |---|---|
-| **Script** | `python examples/curation_coverage.py <ods-url> <database-slug>` |
+| **Script** | `curation_coverage(open_reader(ODS, url), "database", slug)`, as under "Writing a routine" (Resource Explorer installed, for its readers). |
 | **Notebook** | `examples/curation_coverage.ipynb`, run with papermill and the parameters `slug` and `ods_url`: `papermill examples/curation_coverage.ipynb out.ipynb -p slug coco_pharma -p ods_url <url>`. An empty `ods_url` reads `REGISTRY_DATABASE_URL`. |
 | **Portal tile** | The registered function `curation_coverage_tile`, shown as **Trellis - Curation Coverage** in the Egeria Portal. Installing this package registers the function and the tile's report spec; there is nothing to set (see "How analytics are found"). `examples/curation_coverage_tile.md` is the same spec as a Dr.Egeria report-spec document. |
 
@@ -252,11 +246,8 @@ uv run pytest
 ```
 
 The tests need no Resource Explorer, no Postgres and no Egeria. `tests/test_reader_seam.py` guards that nothing in
-`src/` or `examples/steps/` imports `resource_explorer` or a reader implementation. Resource Explorer's own suite
-(in trellis) runs the reference steps end to end against its registry.
-
-The ten reference steps under `examples/steps/` are each their own distribution (`trellis-step-<name>`) that
-depends on this one; install one with `pip install ./examples/steps/<name>`.
+`src/` (or the fixture step) imports `resource_explorer` or a reader implementation. Resource Explorer's own suite (in
+trellis) runs the library's routines and the reference steps end to end against its registry.
 
 ## Releasing
 

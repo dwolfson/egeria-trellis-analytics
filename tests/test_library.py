@@ -38,9 +38,6 @@ def test_the_library_declares_the_pyegeria_group_only():
     ROOT = Path(__file__).resolve().parents[1]
     eps = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["entry-points"]
     assert "pyegeria.analytics" in eps and not any(g.startswith("trellis.") for g in eps)
-    steps = sorted((ROOT / "examples" / "steps").glob("*/pyproject.toml"))
-    assert steps and all(set(tomllib.loads(p.read_text())["project"]["entry-points"]) == {"pyegeria.analytics"}
-                         for p in steps)
 
 
 def _fake_step(tmp_path, monkeypatch, group: str, name: str = "alias_probe"):

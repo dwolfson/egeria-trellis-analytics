@@ -3,7 +3,7 @@
 This repository installs no reader: Resource Explorer registers them (its own tests pin that it does, and that the
 Protocols match its implementations). Pins here: with no reader installed the routine and the tile answer
 not_established in words instead of importing RE; importing the library resolves no reader; and no module of the library
-or of its reference steps imports RE or a reader implementation, at any depth.
+or of its fixture step imports RE or a reader implementation, at any depth.
 """
 import ast
 from pathlib import Path
@@ -105,7 +105,7 @@ def test_the_guard_sees_the_whole_library():
 
 def _moving_files():
     yield from (SRC / p for p in MOVING)
-    yield from sorted((ROOT / "examples" / "steps").glob("*/src/*/*.py"))
+    yield from sorted((ROOT / "tests" / "fixtures").rglob("*.py"))
 
 
 @pytest.mark.parametrize("path", list(_moving_files()), ids=lambda p: str(p.relative_to(ROOT)))
