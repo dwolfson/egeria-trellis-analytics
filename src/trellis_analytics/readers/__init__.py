@@ -7,6 +7,7 @@ Resource Explorer registers each of them:
     catalogue_scope         CatalogueScopeRead: Curate's node set for a database (RE's resolve_node_set)
     investigation_purposes  a callable (registry=None) -> RE's purpose names, for discovery's warn-only check
     question_ids            a callable () -> RE's question catalog ids, for discovery's warn-only check
+    table_rows              TableRowsReader (readers/table_rows.py): the stored rows of a member-scoped table result
 
 A routine asks for a reader by name with `open_reader`; when nothing installed provides it, `ReaderMissing` says so in
 words a result can carry ("no reader installed for ods here"), and the routine answers `not_established` instead of

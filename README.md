@@ -1,7 +1,8 @@
 # egeria-trellis-analytics (the Analytic Library)
 
 *Moved here from the trellis monorepo (`packages/trellis-analytics`, odpi/egeria-trellis) at commit
-`7f4432c60c487679000fa2710f43d37f8eb3de72` (2026-11-02, LS2). The history before that lives in trellis. The distribution
+`7f4432c60c487679000fa2710f43d37f8eb3de72` (2026-11-02, LS2), with B1's member-scoped table result
+(`declaration.py`, `readers/table_rows.py`) from trellis main `778da7616f7604e86a2608725bdcdb5ad971822f` (2026-11-03). The history before that lives in trellis. The distribution
 is `egeria-trellis-analytics`; the import package is still `trellis_analytics`, so every entry point, every Dr.Egeria
 `implementation` string and every `from trellis_analytics import ...` keeps working.*
 
