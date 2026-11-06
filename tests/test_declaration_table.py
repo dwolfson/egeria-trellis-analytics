@@ -53,8 +53,9 @@ def refused(body) -> str:
 # ── a column ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def test_a_bare_string_column_is_text():
+    """0.2 `columns` are read as 0.3 `fields`: a bare string is a string field, `integer` is `int`."""
     t = TableDeclaration.model_validate({"columns": ["a", {"name": "b", "type": "integer", "absence": "none"}]})
-    assert [(c.name, c.type) for c in t.columns] == [("a", "text"), ("b", "integer")]
+    assert [(f.name, f.type) for f in t.fields] == [("a", "string"), ("b", "int")]
 
 
 @pytest.mark.parametrize("body, said", [
@@ -104,15 +105,15 @@ def test_a_table_refuses_a_column_twice_and_a_truncation_without_its_placeholder
 def test_the_member_table_declaration_validates_and_is_complete():
     d = Declaration.model_validate(member_table())
     assert d.missing() == [] and d.is_complete()
-    assert d.table.fields() == ["schema", "table", "column", "state", "declared_type", "null_count",
-                                "distinct_estimate"]
-    assert d.table.column("null_count").measure_ref == "nulls_total"
+    assert d.table.fields_in_order() == ["schema", "table", "column", "state", "declared_type", "null_count",
+                                         "distinct_estimate"]
+    assert d.table.column("null_count").measure == "nulls_total"
 
 
 def test_a_tables_extent_is_derived_from_the_table():
     d = Declaration.model_validate(member_table())
     [e] = d.extents
-    assert e.name == "rows" and e.rows == 1000 and e.fields == d.table.fields()
+    assert e.name == "rows" and e.rows == 1000 and e.fields == d.table.fields_in_order()
     assert e.order == TABLE["order"] and e.truncation == TABLE["truncation"]
     assert e.token_cost == 1000 * 7 * TOKENS_PER_CELL
     assert e.token_cost_per_row == 7 * TOKENS_PER_CELL == 56   # about 8 tokens a cell (Architect, 2026-11-02)
@@ -137,7 +138,7 @@ def test_a_summary_or_measure_ref_names_a_declared_measure():
         member_table({**TABLE, "summary": ["rows_total"]}))
     cols = [c if not (isinstance(c, dict) and c["name"] == "null_count") else {**c, "measure_ref": "nope"}
             for c in TABLE["columns"]]
-    assert "measure_ref names no declared measure (null_count -> nope)" in refused(
+    assert "measure names no declared measure (null_count -> nope)" in refused(
         member_table({**TABLE, "columns": cols}))
 
 
@@ -146,7 +147,6 @@ def test_a_summary_or_measure_ref_names_a_declared_measure():
 @pytest.mark.parametrize("scope", ["member", "field"])
 @pytest.mark.parametrize("change, lack", [
     ({"key_fields": []}, "table.key_fields"),
-    ({"columns": TABLE["columns"] + ["comment"]}, "table.columns.comment.absence"),
     ({"truncation": ""}, "table.truncation"),
     ({"order": ""}, "table.order"),
     ({"summary": []}, "table.summary"),
@@ -181,4 +181,4 @@ def test_a_pre_b1_field_table_with_hand_extents_still_loads_and_names_its_lacks(
                                     "table": {"columns": ["a", "b"], "key_fields": ["a"]}})
     assert [e.name for e in d.extents] == ["status"]
     assert [m for m in d.missing() if m.startswith("table.")] == [
-        "table.columns.b.absence", "table.truncation", "table.order", "table.summary"]
+        "table.truncation", "table.order", "table.summary"]

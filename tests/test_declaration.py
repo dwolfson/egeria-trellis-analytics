@@ -9,6 +9,7 @@ from trellis_analytics.declaration import (
     FULL_FIELDS,
     RESULT_KINDS,
     Declaration,
+    LegacyWordWarning,
     refusal,
 )
 from trellis_analytics.manifest import StepManifest
@@ -37,7 +38,7 @@ def refused(body) -> str:
 
 def test_the_vocabularies_are_the_design_notes():
     assert RESULT_KINDS == ("measure", "series", "distribution", "list", "graph", "finding", "proposal", "table")
-    assert ABSENCE_STATES == ("not_measured", "not_permitted", "not_applicable", "measured_nothing")
+    assert ABSENCE_STATES == ("not_measured", "not_permitted", "not_applicable", "nothing_found")
     assert CONFIDENCE_FORMS == ("measured", "estimated", "inferred", "judged", "generated")
 
 
@@ -62,8 +63,8 @@ def test_answers_empty_is_a_declaration_and_absent_is_not():
     (minimum(measures=[MEASURE, MEASURE]), "measure s is declared more than once"),
     (minimum(measures=[{**MEASURE, "annotation": {"type": ""}}]), "annotation type is empty"),
     (minimum(absence={**ABSENCE, "not_permitted": ""}), "absence sentence for not_permitted is empty"),
-    (minimum(absence={k: v for k, v in ABSENCE.items() if k != "measured_nothing"}),
-     "absence.measured_nothing is required"),
+    (minimum(absence={k: v for k, v in ABSENCE.items() if k != "nothing_found"}),
+     "absence.nothing_found is required"),
     (minimum(absence={**ABSENCE, "never_run": "x"}), "absence.never_run is not a declaration field"),
     (minimum(colour="blue"), "colour is not a declaration field"),
     (minimum(scope="table"), "scope 'table' is not one of the levels"),
@@ -271,10 +272,14 @@ def test_a_basis_on_a_fraction_is_refused_because_the_denominator_is_in_the_unit
 
 
 def test_a_basis_on_a_count_and_a_capped_field_are_accepted_and_read_back():
-    d = Declaration.model_validate(minimum(measures=[_measure(
-        unit="columns", basis={"denominator_field": "column_count", "denominator_label": "columns"},
-        capped_field="paging.capped")]))
-    assert d.measures[0].basis.denominator_label == "columns" and d.measures[0].capped_field == "paging.capped"
+    """0.2's `capped_field` is read as 0.3's `completeness_field`, with a warning, and still read back by its old name."""
+    with pytest.warns(LegacyWordWarning, match="'capped_field' is a 0.2 word, read as 'completeness_field'"):
+        d = Declaration.model_validate(minimum(measures=[_measure(
+            unit="columns", basis={"denominator_field": "column_count", "denominator_label": "columns"},
+            capped_field="paging.capped")]))
+    assert d.measures[0].basis.denominator_label == "columns" and d.measures[0].completeness_field == "paging.capped"
+    with pytest.warns(LegacyWordWarning):
+        assert d.measures[0].capped_field == "paging.capped"
 
 
 def test_overlapping_categories_with_a_stated_total_are_refused():

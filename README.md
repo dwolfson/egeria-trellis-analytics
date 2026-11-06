@@ -48,7 +48,121 @@ For people who use the results, not write them: see the "Analytic Library" secti
 | `trellis_analytics.routines.context_pack` | Packages what Egeria holds about one database for one kind of consumer, each fact with a state word and provenance. |
 | `trellis_analytics.portal` | The Portal tile for `curation_coverage`. |
 | `trellis_analytics.step` | `SurveyStep`, the wrapper that runs a user's step code (see below). |
+| `trellis_analytics.declaration` | `Declaration`: what an analysis says about its results (kind, measures, absence sentences, extents, confidence, table), and the 0.3 vocabulary (see "The vocabulary" below). |
 | `trellis_analytics.declare` | `manifest_properties`: what a step's Egeria declaration says about it, from its manifest. The declaration itself is RE's engine host's (see "Dispatched by Egeria" below). |
+
+## The vocabulary (0.3)
+
+0.3 ships the words of the report-spec micro-flow model (`portal-docs/Internals/report-spec-pipeline-model.md` on
+odpi/egeria-workspaces, §2, §5, §7) in `trellis_analytics.declaration`, so manifests, registries and pyegeria bake the
+same words. Nothing in the library executes a micro-flow yet; the words come first.
+
+**Structure** (`STRUCTURE_WORDS`): `spec`, `envelope`, `microflow`, `stage`, `producer`, `processor`, `routine`,
+`formatter`, `step`.
+
+```
+spec       := envelope  microflow  formatters
+microflow  := (routine | producer) processor*
+routine    := producer+ processor*        # named and reusable; a step is a routine deployed to an engine host
+formatter  := shape × renderer
+```
+
+| Tuple | Words |
+|---|---|
+| `STAGE_KINDS` | `producer`, `processor`, `routine` |
+| `PRODUCER_KINDS` | `find`, `saved_query`, `count`, `query`, `results`, `literal`, `python`, `typedefs` |
+| `PROCESSOR_KINDS` | `derive`, `aggregate`, `join`, `snapshot`, `filter`, `represent` |
+| `RESULT_KINDS` | unchanged: `measure`, `series`, `distribution`, `list`, `graph`, `finding`, `proposal`, `table` |
+| `SCOPES` | unchanged: the **result level**, `resource`, `container`, `member`, `field` |
+| `POPULATIONS` | the population a count reads: `viewer` (every match read and checked: what the caller may see) or `repository` (the repository counts rows, with no per-element visibility check) |
+
+`scope` and `population` are two words (project owner, 2026-11-06). `scope` is the level a result is about.
+`population` is whose view a count reads. pyegeria 6.2.22's `count_elements(..., scope=)` keyword is this
+`population`.
+
+**Absence.** `ABSENCE_STATES` is `not_measured`, `not_permitted`, `not_applicable`, `nothing_found`.
+`nothing_found` is also the envelope's word, so one word means "looked, and there was nothing" at both levels. 0.2
+called it `measured_nothing`. A 0.2 `absence` block still loads: the key is read as `nothing_found`, with a
+`LegacyWordWarning` (a `DeprecationWarning`). `AbsenceSentences.sentence("measured_nothing")` returns the
+`nothing_found` sentence and warns. Nothing the library writes says `measured_nothing`.
+
+**Fields, shapes and value cells (§5).** A `Field` has:
+
+- `name`: an identifier, `[A-Za-z_][A-Za-z0-9_]*`. A dot is always a path, never part of a name.
+- `label`: the column name a person reads.
+- `kind`: `data`, `cell`, `representation` or `dataset`.
+- `type`: `string`, `int`, `float`, `fraction`, `bool`, `datetime`, `guid`, `list<T>`, `map<string,T>`, or
+  `representation/<format>`.
+- Optionally `unit`, `detail_spec` and `valid_values`. A `dataset` field also has its `shape`, and a `cell` has its
+  `companions`.
+
+A `Shape` has `fields`, `extends` (reuse every field of a parent) and `{"include": "Shape.field"}` entries (reuse one
+field in its place). A reused field is the declarer's one field, not a copy. `register_shape` refuses a shape that
+redeclares a field it reuses.
+
+A cell's companions (`CELL_COMPANIONS`) are:
+
+| Companion | Meaning |
+|---|---|
+| `state` | One of `CELL_STATES`: `measured` plus the four absences. |
+| `completeness` | `complete`, `lower_bound` ("at least N") or `unknown` ("incomplete: some items may be hidden from you"). It replaces 0.2's boolean `capped_field`. |
+| `uncertainty` | The spread of the value: `plus_minus`, `low_high` or `band`, declared per measure. |
+| `unit`, `as_of`, `basis`, `provenance`, `score` | As in the shipped declaration. |
+| `population` | `viewer` or `repository`. |
+
+A cell with no companions list carries `state` only.
+
+**State sets.** A field may narrow its `state` companion to a registered set:
+`{"name": "state", "valid_values": "CountStates"}`. A set may only narrow the shared words, never add one, and is
+checked at load. Two sets ship:
+
+- `CountStates`: `measured`, `not_measured`, `nothing_found`. A count read under the daemon cannot be `not_permitted`.
+- `MemberStates`: `measured`, `not_measured`, `not_permitted`, `nothing_found`. These are B1's per-row states,
+  renamed.
+
+`register_state_set` adds others.
+
+**Measures.**
+
+- `completeness_field` names the result field holding the completeness. It may hold a word, or a boolean read as
+  `lower_bound` when true (`completeness_of`).
+- 0.2's `capped_field` is read as `completeness_field`, with a warning. It is also kept as a read-only property that
+  warns.
+- `uncertainty: {form, field}` (or `{form: low_high, low_field, high_field}`) declares the spread. It is refused on a
+  count (a measure with a `basis`, or a `[]` value) and on a `measured` (exact) read: a count's only uncertainty is its
+  completeness. A cell of a measure that declares uncertainty but carries none reads "spread not estimated".
+
+### B1's table, re-expressed on §5
+
+A table result's rows are a `dataset` of a **registered shape**: `table: {shape: "ColumnProfileRow", key_fields: ...}`.
+That is the normal case, so Egeria gets one `DataStructure`. Inline `fields` also work. The table-level rules stay on
+the table block. `TableDeclaration.as_dataset_field()` gives the table as the dataset field it is. Column by column:
+
+| B1 / shipped 0.2 | §5 / 0.3 | Rule |
+|---|---|---|
+| `TableColumn.name` | `Field.name` | same; must now be an identifier (B1's `schema`, `table`, `column` all are) |
+| (none) | `Field.label` | new, required; the shown column name |
+| `type: text / integer / number / boolean / date / datetime` | `string / int / float / bool / datetime / datetime` | rename; accept the old names on read for one minor release with a warning |
+| `type: bytes`, `type: duration` | `type: int` or `float` with `unit: "bytes"` / `"seconds"` | §5 carries the unit on the field; `UNIT_COLUMN_TYPES` retires |
+| `type: state` + `states: [...]` | **no column**: the row's measured column is `kind: cell` and carries `state` as a companion, narrowed by a named state set | a state is never a column of its own; B1's `states` list becomes the set name (`CountStates`, or a new registered set) |
+| `absence: "not counted"` per column | **removed from the field**; the sentence comes from the measure the column is the per-member value of (`AbsenceSentences`, declared once per measure, §5 "absence sentence: not carried in the cell") | so a `cell` column **must** name its measure: `measure_ref` becomes required for `kind: cell`, optional (and ignored) for `data`; a `data` column has no absence (an empty key cell is a refused row, not an absence) |
+| `measure_ref` | `measure` | rename; same meaning; still checked against the declaration's measures |
+| `key_fields` | unchanged, on the table block | §5 has no key notion; B1 rule 1 stands (member scope ⇒ keys) |
+| `max_rows`, `order`, `truncation` | unchanged words; the shown slice is a dataset whose `completeness` is `lower_bound` when truncated | the truncation sentence is the `lower_bound` rendering for a dataset ("the first {shown} of {total}") |
+| `summary` | unchanged | the summary measures are the resource-scope `measure` set beside the table |
+| `columns: list[TableColumn \| str]` | `shape: "<RegisteredShape>"` **or** inline `fields` | inline keeps the two test declarations valid; a registered shape is the normal case so Egeria gets one `DataStructure` |
+| B1's `measured_nothing` in `states` | `nothing_found` | the rename |
+
+**Reading a 0.2 table.** A 0.2 `columns` list is read as `fields`, with one warning, and written as `fields`. The read
+follows the table above, with one difference: a 0.2 `type: state` column is kept as a `string` field, so stored rows
+keep their keys. Its `valid_values` is the registered set its renamed states equal (B1's list is `MemberStates`), or
+the list itself when no set equals it.
+
+A 0.2 per-column `absence` word is dropped on read. A 0.3 table owes its key, truncation, order and summary
+(`missing()`), and refuses a cell column that names no measure.
+
+`TableDeclaration.fields()` (the key, then the rest) is now `fields_in_order()`, because `fields` is the inline field
+list.
 
 ## Writing a routine
 
