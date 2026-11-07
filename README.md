@@ -158,7 +158,15 @@ follows the table above, with one difference: a 0.2 `type: state` column is kept
 keep their keys. Its `valid_values` is the registered set its renamed states equal (B1's list is `MemberStates`), or
 the list itself when no set equals it.
 
-A 0.2 per-column `absence` word is dropped on read. A 0.3 table owes its key, truncation, order and summary
+**0.3.1 compat for 0.2 readers.** `TableDeclaration.columns` is back as a read-only, deprecated property
+(`LegacyApiWarning`, a `DeprecationWarning`): 0.2-shaped columns with `name`, `type`, `unit`, `absence`, `states`,
+`key`. Types map back (string -> text, int -> integer, float -> number, `int`+`bytes` -> bytes, `float`+`seconds` ->
+duration, a string with a state set -> state with `states`; `date` reads `datetime`). A 0.2 per-column `absence` text is
+kept and read back as written; a 0.3 table has none, and `Declaration.table_columns()` fills a cell column's with the
+declaration's `not_measured` sentence. What changes: `measured_nothing` in a state column's `states` reads
+`nothing_found`. `fields` is not compat: it is the list in 0.3 (a method in 0.2), so call `fields_in_order()`.
+
+A 0.3 table owes its key, truncation, order and summary
 (`missing()`), and refuses a cell column that names no measure.
 
 `TableDeclaration.fields()` (the key, then the rest) is now `fields_in_order()`, because `fields` is the inline field

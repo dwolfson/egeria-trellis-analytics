@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import re
 import warnings
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -47,6 +48,11 @@ CELL_STATES = ("measured",) + ABSENCE_STATES
 class LegacyWordWarning(DeprecationWarning):
     """A declaration was read with a word of an earlier release (0.2), which this release maps to its 0.3 word. The
     declaration loads; the warning names the old word and the new one, so its source can be converted as touched."""
+
+
+class LegacyApiWarning(DeprecationWarning):
+    """A 0.2 API that 0.3.1 keeps readable (`TableDeclaration.columns`) was used. It works; the warning names what to use
+    instead. Removed in a later minor release."""
 
 
 def _legacy(old: str, new: str, where: str) -> None:
@@ -866,6 +872,25 @@ def _label(name: str) -> str:
     return " ".join(w[:1].upper() + w[1:] for w in name.replace("_", " ").split())
 
 
+#: The reverse of `LEGACY_COLUMN_TYPES`, for the compat `TableDeclaration.columns`: (§5 type, unit) -> 0.2 type. The
+#: unit-implying types are listed first so `int`+`bytes` is `bytes`, not `integer`. `date` -> `datetime` is lossy.
+_REVERSE_COLUMN_TYPES = {("int", "bytes"): "bytes", ("float", "seconds"): "duration", ("string", ""): "text",
+                         ("int", ""): "integer", ("float", ""): "number", ("bool", ""): "boolean",
+                         ("datetime", ""): "datetime"}
+
+
+@dataclass(frozen=True)
+class LegacyColumn:
+    """A 0.2 table column as `TableDeclaration.columns` returns it: `name`, `type` (a 0.2 type), `unit`, `absence`,
+    `states` and `key`, read only."""
+    name: str
+    type: str
+    unit: str = ""
+    absence: str = ""
+    states: tuple[str, ...] = ()
+    key: bool = False
+
+
 class TableColumn(_Strict):
     """A B1 (0.2) table column, read only: `TableDeclaration` converts each to a `Field` (`as_field`) and
     writes fields. Kept so a 0.2 column is refused with the sentence it was refused with."""
@@ -940,6 +965,9 @@ class TableDeclaration(_Strict):
     truncation: str = ""
     #: The measures, declared beside the table, that say the whole of it in one sentence; required at member scope.
     summary: list[str] = _Default(default_factory=list)
+    #: The per-column `absence` text a 0.2 `columns` list declared, by column name: kept so `columns` reads it back
+    #: (0.3.1). Not written (`model_dump` leaves it out); a 0.3 table has none.
+    legacy_absence: dict[str, str] = _Default(default_factory=dict, exclude=True, repr=False)
 
     @model_validator(mode="before")
     @classmethod
@@ -954,6 +982,7 @@ class TableDeclaration(_Strict):
         if isinstance(columns, list):
             parsed = [TableColumn(name=c) if isinstance(c, str) else TableColumn.model_validate(c) for c in columns]
             data["fields"] = [c.as_field() for c in parsed]
+            data["legacy_absence"] = {c.name: c.absence for c in parsed if _words(c.absence)}
         else:
             data["fields"] = columns
         _legacy("columns", "fields", "table")
@@ -999,6 +1028,48 @@ class TableDeclaration(_Strict):
 
     def column_names(self) -> list[str]:
         return [f.name for f in self.row_fields()]
+
+    def __eq__(self, other):
+        # The kept 0.2 absence text is not part of what a table says: a table equals its own round trip.
+        if isinstance(other, TableDeclaration):
+            return self.model_dump() == other.model_dump()
+        return super().__eq__(other)
+
+    __hash__ = None
+
+    @property
+    def columns(self) -> list[LegacyColumn]:
+        """DEPRECATED (0.3.1 compat for 0.2 readers): the row's fields as 0.2 columns. Use `row_fields()`.
+
+        `type` is the 0.2 type name (string -> text, int -> integer, float -> number; `int`+`bytes` -> bytes,
+        `float`+`seconds` -> duration; a string whose `valid_values` is a state set, or states, -> state with `states`
+        filled; `date` and `datetime` both read `datetime`). `absence` is the text a 0.2 `columns` list declared, else
+        "": in 0.3 a cell's absence sentence is its measure's, on `Declaration.absence`, which a table cannot see; use
+        `Declaration.table_columns()` to have it filled in. `fields` is not compat: it is a list in 0.3 (a method in 0.2).
+        """
+        warnings.warn("TableDeclaration.columns is the 0.2 API, kept for readers not yet moved: use row_fields() "
+                      "(or Declaration.table_columns() for the absence text)", LegacyApiWarning, stacklevel=2)
+        return self._legacy_columns_view()
+
+    def _legacy_columns_view(self, absence=None) -> list[LegacyColumn]:
+        out = []
+        for f in self.row_fields():
+            states: tuple[str, ...] = ()
+            ctype = _REVERSE_COLUMN_TYPES.get((f.type, f.unit), None)
+            vv = f.valid_values
+            if f.type == "string" and not f.unit and vv is not None:
+                known = STATE_SETS[vv].states if isinstance(vv, str) and vv in STATE_SETS else \
+                    tuple(vv) if isinstance(vv, list) and all(v in CELL_STATES for v in vv) else None
+                if known is not None:
+                    ctype, states = "state", known
+            if ctype is None:   # a unit on a type 0.2 spelled differently: keep its unit, take the type's plain name
+                ctype = _REVERSE_COLUMN_TYPES.get((f.type, ""), "text")
+            text = self.legacy_absence.get(f.name, "")
+            if not text and absence is not None and f.kind == "cell":
+                text = absence
+            out.append(LegacyColumn(name=f.name, type=ctype, unit=f.unit, absence=text, states=states,
+                                    key=f.name in self.key_fields))
+        return out
 
     def column(self, name: str) -> Field | None:
         return next((f for f in self.row_fields() if f.name == name), None)
@@ -1194,6 +1265,16 @@ class Declaration(_Strict):
         """Is this a table result (B1): a member- or field-scoped table that owes nothing? Only a table result stores
         its rows, draws the table block, publishes its summary alone and quotes its stored rows."""
         return self.table is not None and self.scope in KEYED_SCOPES and not self.table.lacks()
+
+    def table_columns(self) -> list[LegacyColumn]:
+        """DEPRECATED (0.3.1 compat): the table's 0.2 columns with `absence` filled as far as 0.3 knows it: the text a
+        0.2 `columns` list declared, else, for a `cell` column, this declaration's `not_measured` sentence (an empty
+        cell is a value not measured), else "". Use `table.row_fields()` and `absence.sentence(...)`."""
+        if self.table is None:
+            return []
+        warnings.warn("Declaration.table_columns() is a 0.2 compat view: use table.row_fields() and absence.sentence()",
+                      LegacyApiWarning, stacklevel=2)
+        return self.table._legacy_columns_view(absence=self.absence.not_measured)
 
     def confidence_of(self, measure: MeasureDeclaration) -> ConfidenceDeclaration | None:
         """A measure's confidence: its own, else the declaration's."""
