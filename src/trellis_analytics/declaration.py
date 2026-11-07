@@ -11,21 +11,108 @@ Two levels (owner's answer 2, §1): the **minimum** an experiment runs with is `
 `extents`, `confidence`, `answers` and `scope`; `missing()` names what a minimum declaration still lacks.
 
 Every refusal is a sentence naming the field and the value refused, as the manifest's own validators word theirs.
+
+0.3 (BRIEF RS-W1-1; report-spec-pipeline-model §2, §5, §7) adds the shared vocabulary: the micro-flow words
+(`STAGE_KINDS`, `PRODUCER_KINDS`, `PROCESSOR_KINDS`), §5's `Field` and `Shape` with their registry, value-cell
+companions, named state sets, `completeness` (replacing `capped_field`), `uncertainty` per measure, `POPULATIONS`, and
+`nothing_found` as the one absence word. A table's rows are a dataset of a registered shape (or inline fields). A 0.2
+declaration still loads: each 0.2 word is read as its 0.3 word with a `LegacyWordWarning` and never written.
 """
 from __future__ import annotations
 
+import re
+import warnings
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import Field as _Default  # `Field` is §5's field model below
 
 #: §2: the fixed vocabulary. A ninth kind is a design change, not a value a declaration may invent.
 RESULT_KINDS = ("measure", "series", "distribution", "list", "graph", "finding", "proposal", "table")
 
 #: §1's four absences, each a sentence the analysis declares, never one a renderer improvises. How they meet the
-#: envelope's states (`envelope.ResultState`): `measured_nothing` is `nothing_found`; `not_measured` and
-#: `not_permitted` are both `not_established`, told apart by the reason (could not look, versus not allowed to);
-#: `not_applicable` is `not_applicable`.
-ABSENCE_STATES = ("not_measured", "not_permitted", "not_applicable", "measured_nothing")
+#: envelope's states (`envelope.ResultState`): `nothing_found` is `nothing_found` (one word at both levels since 0.3);
+#: `not_measured` and `not_permitted` are both `not_established`, told apart by the reason (could not look, versus not
+#: allowed to); `not_applicable` is `not_applicable`.
+ABSENCE_STATES = ("not_measured", "not_permitted", "not_applicable", "nothing_found")
+
+#: The absence words of earlier releases, accepted on read and never written: old word -> the word it is now. 0.2
+#: called "looked, and there was nothing" `measured_nothing`; 0.3 uses the envelope's word, `nothing_found`.
+LEGACY_ABSENCE_WORDS = {"measured_nothing": "nothing_found"}
+
+#: The state a value cell carries when there is a value: the absences plus this one (§5 `state`).
+CELL_STATES = ("measured",) + ABSENCE_STATES
+
+
+class LegacyWordWarning(DeprecationWarning):
+    """A declaration was read with a word of an earlier release (0.2), which this release maps to its 0.3 word. The
+    declaration loads; the warning names the old word and the new one, so its source can be converted as touched."""
+
+
+def _legacy(old: str, new: str, where: str) -> None:
+    warnings.warn(f"{where}: '{old}' is a 0.2 word, read as '{new}'; write '{new}' (0.2 words are read for one minor "
+                  "release and never written)", LegacyWordWarning, stacklevel=4)
+
+
+# ── the micro-flow (report-spec-pipeline-model §2, §3, §4, §7) ─────────────────────────────────────────────────────
+# Words only: nothing here executes a micro-flow yet (that is step (a″)). They ship so manifests and registries bake
+# the right words:
+#   spec       := envelope  microflow  formatters
+#   microflow  := (routine | producer) processor*
+#   routine    := producer+ processor*         (named, reusable; a `step` is a routine deployed to an engine host)
+#   formatter  := shape × renderer
+
+#: The parts of a report spec and of what runs it, in the note's words.
+STRUCTURE_WORDS = ("spec", "envelope", "microflow", "stage", "producer", "processor", "routine", "formatter", "step")
+
+#: What a micro-flow entry names (§2 `stage := producer | processor | routine`).
+STAGE_KINDS = ("producer", "processor", "routine")
+
+#: §3: how a dataset is produced. `typedefs` is new in §10.8 (the Overview's type census).
+PRODUCER_KINDS = ("find", "saved_query", "count", "query", "results", "literal", "python", "typedefs")
+
+#: §4: how a dataset is processed.
+PROCESSOR_KINDS = ("derive", "aggregate", "join", "snapshot", "filter", "represent")
+
+#: The population a count reads (§3 `count`, §9.23; owner's word 2026-11-06: "population", because `scope` already
+#: means the result level, `SCOPES`). `viewer`: every matching element is read and checked, so the count is what the
+#: caller may see and agrees with a find (Egeria `pushDown=false`). `repository`: the repository counts rows, fast at
+#: any size, with no per-element visibility check (`pushDown=true`).
+POPULATIONS = ("viewer", "repository")
+
+# ── fields, shapes and value cells (§5) ─────────────────────────────────────────────────────────────────────────
+
+#: What a field is: plain data; a value cell with companions; a pre-built representation (`mermaidGraph`); nested rows
+#: of another shape (master-detail).
+FIELD_KINDS = ("data", "cell", "representation", "dataset")
+
+#: The plain field types. `list<T>` and `map<string,T>` take one of these as T; `representation/<format>` is a
+#: representation field's type.
+FIELD_TYPES = ("string", "int", "float", "fraction", "bool", "datetime", "guid")
+
+#: The companions a value cell may carry (§5 table). `population` is §9.23's count population (see `POPULATIONS`).
+CELL_COMPANIONS = ("state", "completeness", "uncertainty", "unit", "as_of", "basis", "provenance", "score",
+                   "population")
+
+#: §5 `completeness`, which replaces 0.2's boolean `capped_field`: `complete`; `lower_bound` (what `capped_field`
+#: said; rendered "at least N"); `unknown` (silently filtered: not even a bound).
+COMPLETENESS = ("complete", "lower_bound", "unknown")
+
+#: How a value that is not `complete` is shown: never a bare integer, never zero (§5).
+COMPLETENESS_WORDS = {"lower_bound": "at least {value}", "unknown": "incomplete: some items may be hidden from you"}
+
+#: §5 `uncertainty`: the spread of the value itself (not confidence in the method), in the value's own unit.
+UNCERTAINTY_FORMS = ("plus_minus", "low_high", "band")
+
+#: The words for a measure that declares uncertainty whose cell carries none: an absent ± would read as exact.
+UNCERTAINTY_ABSENT_WORDS = "spread not estimated"
+
+#: The closed vocabularies a companion's `valid_values` may narrow.
+COMPANION_VOCABULARIES = {"state": CELL_STATES, "completeness": COMPLETENESS, "uncertainty": UNCERTAINTY_FORMS,
+                          "population": POPULATIONS}
+
+#: A field name: a plain identifier. A dot is always a path (`rows.state`), never part of a name.
+FIELD_NAME_PATTERN = r"[A-Za-z_][A-Za-z0-9_]*"
 
 #: §4: a result's confidence is one of five forms, and a score never travels without its basis.
 CONFIDENCE_FORMS = ("measured", "estimated", "inferred", "judged", "generated")
@@ -76,7 +163,7 @@ class AnnotationDeclaration(_Strict):
     declared" (owner's answer 1). `properties` maps a result field to the Egeria property it is written to; empty
     means the type is declared and its property map is not."""
     type: str
-    properties: dict[str, str] = Field(default_factory=dict)
+    properties: dict[str, str] = _Default(default_factory=dict)
 
     @field_validator("type")
     @classmethod
@@ -133,10 +220,40 @@ class MeasureDeclaration(_Strict):
     scope: Literal["resource", "container", "member", "field"] | None = None
     #: The whole this count is a part of; absent for a count with no stated whole.
     basis: BasisDeclaration | None = None
-    #: The result field that is true when the value is a lower bound ("capped", "paging.capped", "run.truncated").
-    #: Declared on the measure, not the declaration, because one step may cap one measure (a paged list) and not
-    #: another (a COUNT(*)). A capped value reads "at least N <unit>" and every figure derived from it is withheld.
-    capped_field: str = ""
+    #: The result field saying how complete the value is (§5 `completeness`, replacing 0.2's `capped_field`): it holds
+    #: one of `COMPLETENESS`, or a boolean read as `lower_bound` when true and `complete` when false (so the 0.2
+    #: `capped` fields keep their meaning; `completeness_of`). Declared on the measure, not the declaration, because
+    #: one step may cap one measure (a paged list) and not another (a COUNT(*)). A `lower_bound` value reads "at least N
+    #: <unit>" and every figure derived from it is withheld. Empty: the value is not declared as possibly incomplete.
+    completeness_field: str = ""
+    #: The spread of the value (§5 `uncertainty`), declared with its form; never on an exact count, whose only
+    #: uncertainty is its completeness.
+    uncertainty: "UncertaintyDeclaration | None" = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_capped_field(cls, data):
+        if isinstance(data, dict) and "capped_field" in data:
+            data = dict(data)
+            capped = data.pop("capped_field")
+            if _words(data.get("completeness_field")) and _words(capped) != _words(data["completeness_field"]):
+                raise ValueError(f"measure '{data.get('name', '')}' declares capped_field and completeness_field: "
+                                 "capped_field is the 0.2 word for completeness_field, so declare completeness_field "
+                                 "only")
+            data["completeness_field"] = capped
+            _legacy("capped_field", "completeness_field", f"measure '{data.get('name', '')}'")
+        return data
+
+    @property
+    def capped_field(self) -> str:
+        """0.2's name for `completeness_field`, for readers not yet converted. Read-only; warns."""
+        _legacy("capped_field", "completeness_field", f"measure '{self.name}'")
+        return self.completeness_field
+
+    def is_count(self) -> bool:
+        """Is this a count of things, by what the declaration itself says: a basis (legal only on a count) or a value
+        that is the number of items in a list (`value_field` ending `[]`)?"""
+        return self.basis is not None or self.value_field.strip().endswith("[]")
 
     @field_validator("scope", mode="before")
     @classmethod
@@ -150,6 +267,9 @@ class MeasureDeclaration(_Strict):
         if self.basis is not None and is_fraction(self.unit):
             raise ValueError(f"measure '{self.name}' declares a basis on a fraction ('{self.unit}'): the "
                              "denominator is in the unit, so a basis belongs on a count only")
+        if self.uncertainty is not None and self.is_count():
+            raise ValueError(f"measure '{self.name}' declares uncertainty on a count: a count is exact, and its only "
+                             "uncertainty is its completeness, so declare completeness_field instead")
         return self
 
     @model_validator(mode="after")
@@ -162,12 +282,64 @@ class MeasureDeclaration(_Strict):
         return self
 
 
+def completeness_of(value) -> str:
+    """A result's completeness value as one of `COMPLETENESS`: a word as itself, a boolean (0.2's `capped`) as
+    `lower_bound` when true and `complete` when false, anything else `unknown` (never silently `complete`)."""
+    if isinstance(value, bool):
+        return "lower_bound" if value else "complete"
+    word = _words(value)
+    return word if word in COMPLETENESS else "unknown"
+
+
+class UncertaintyDeclaration(_Strict):
+    """§5 `uncertainty`: the spread of a measure's value, in the value's own unit, distinct from confidence in the
+    method. Declared per measure; filled per cell. A cell that carries none reads `UNCERTAINTY_ABSENT_WORDS`."""
+    form: str
+    #: The result field holding the spread: the ± for `plus_minus`, the band's name for `band`.
+    field: str = ""
+    #: `low_high` only: the result fields holding the low and the high value.
+    low_field: str = ""
+    high_field: str = ""
+
+    @model_validator(mode="after")
+    def _form(self) -> "UncertaintyDeclaration":
+        if self.form not in UNCERTAINTY_FORMS:
+            raise ValueError(f"uncertainty form '{self.form}' is not one of the forms ({', '.join(UNCERTAINTY_FORMS)})")
+        if self.form == "low_high":
+            if not (_words(self.low_field) and _words(self.high_field)) or _words(self.field):
+                raise ValueError("uncertainty form 'low_high' names low_field and high_field (and no field): say "
+                                 "which result fields hold the low and the high value")
+        elif not _words(self.field) or _words(self.low_field) or _words(self.high_field):
+            raise ValueError(f"uncertainty form '{self.form}' names field (and no low_field or high_field): say which "
+                             "result field holds the spread")
+        return self
+
+
 class AbsenceSentences(_Strict):
-    """§1 `absence`: the sentence shown for each way a result can be absent. All four are declared."""
+    """§1 `absence`: the sentence shown for each way a result can be absent. All four are declared.
+
+    0.2's `measured_nothing` is read as `nothing_found` (with a `LegacyWordWarning`) and never written."""
     not_measured: str
     not_permitted: str
     not_applicable: str
-    measured_nothing: str
+    nothing_found: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_words(cls, data):
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        for old, new in LEGACY_ABSENCE_WORDS.items():
+            if old not in data:
+                continue
+            sentence = data.pop(old)
+            if new in data and _words(data[new]) != _words(sentence):
+                raise ValueError(f"absence declares {old} and {new} with different sentences: {old} is the 0.2 word "
+                                 f"for {new}, so declare {new} only")
+            data[new] = sentence
+            _legacy(old, new, "absence")
+        return data
 
     @model_validator(mode="after")
     def _filled(self) -> "AbsenceSentences":
@@ -178,6 +350,10 @@ class AbsenceSentences(_Strict):
         return self
 
     def sentence(self, state: str) -> str:
+        """The sentence for an absence state; a 0.2 word (`measured_nothing`) gives its 0.3 word's sentence, and warns."""
+        if state in LEGACY_ABSENCE_WORDS:
+            _legacy(state, LEGACY_ABSENCE_WORDS[state], "absence.sentence")
+            state = LEGACY_ABSENCE_WORDS[state]
         return getattr(self, state)
 
 
@@ -192,7 +368,7 @@ class ExtentDeclaration(_Strict):
     order: str = ""
     #: The order as keys the compiler applies, each "<field> asc" or "<field> desc" on one of `fields`, first key
     #: first ("row_count desc"); the words are derived from it (`order_words`). Project owner, 2026-10-28.
-    sort: list[str] = Field(default_factory=list)
+    sort: list[str] = _Default(default_factory=list)
     #: Shown when rows were dropped; carries `{shown}` and `{total}` for the compiler to fill.
     truncation: str
     #: The extent's cost at `rows` rows, in tokens, for the compiler's budget (§3 step 4).
@@ -206,7 +382,7 @@ class ExtentDeclaration(_Strict):
     #: Where the rows are in the result, when that is not a field named like the extent: each a dotted path to a
     #: list (each item a row) or to a mapping (one row), "." the result itself as one row. Several are joined in
     #: order. Empty means the extent's name is the path.
-    source: list[str] = Field(default_factory=list)
+    source: list[str] = _Default(default_factory=list)
     #: With several sources: the row field that carries which source a row came from (the path's last part:
     #: "columns_added"), so joined rows stay told apart. Empty for none.
     tag: str = ""
@@ -338,7 +514,7 @@ class FindingDeclaration(_Strict):
     where_field: str = ""
     severity_field: str = ""
     #: The closed vocabulary `severity_field` may hold, in words, lowest to highest.
-    severities: list[str] = Field(default_factory=list)
+    severities: list[str] = _Default(default_factory=list)
     #: The field saying what to do, when the finding proposes an action (published as a RequestForAction).
     action_field: str = ""
 
@@ -361,7 +537,7 @@ class ProposalDeclaration(_Strict):
     candidate_field: str
     #: Who turns it into a fact (owner rule: facts only through Curate).
     decided_by: Literal["curator", "automatic"]
-    decision_states: list[str] = Field(default_factory=lambda: ["proposed", "accepted", "rejected"])
+    decision_states: list[str] = _Default(default_factory=lambda: ["proposed", "accepted", "rejected"])
     #: The field of each candidate row holding its decision state, when rows carry one; "" means every candidate
     #: is still a proposal.
     state_field: str = ""
@@ -402,12 +578,276 @@ class ListDeclaration(_Strict):
         return self
 
 
-#: B1 (DESIGN-B1-MEMBER-SCOPED-TABLE-RESULT §2): the types a table column may hold. `state` is a closed vocabulary the
-#: column declares (`states`); `bytes` and `duration` are numbers whose unit is said.
-TABLE_COLUMN_TYPES = ("text", "integer", "number", "boolean", "date", "datetime", "bytes", "duration", "state")
+# ── state sets (§5 "What a field declares") ─────────────────────────────────────────────────────────────────────
 
-#: The column types that carry a unit, because a number never travels without one.
-UNIT_COLUMN_TYPES = ("number", "bytes", "duration")
+class StateSet(_Strict):
+    """A named narrowing of the shared cell states: a field's `state` companion may name one so its cells hold only
+    these words. A set only narrows (it is a subset of `CELL_STATES`), never adds a word, because formatters and
+    absence sentences know only the shared words."""
+    name: str
+    states: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def _subset(self) -> "StateSet":
+        if not re.fullmatch(FIELD_NAME_PATTERN, self.name or ""):
+            raise ValueError(f"state set name '{self.name}' is not an identifier")
+        if not self.states:
+            raise ValueError(f"state set '{self.name}' names no states")
+        if len(set(self.states)) != len(self.states):
+            raise ValueError(f"state set '{self.name}' names a state more than once")
+        extra = [s for s in self.states if s not in CELL_STATES]
+        if extra:
+            raise ValueError(f"state set '{self.name}' names {', '.join(extra)}, which is not a cell state "
+                             f"({', '.join(CELL_STATES)}): a set narrows the shared words, never adds one")
+        return self
+
+
+#: The registered state sets, by name. `CountStates`: a count read under the daemon cannot be `not_permitted`.
+#: `MemberStates`: one member of a resource read on its own, which may be refused (B1's per-row states, renamed).
+STATE_SETS: dict[str, StateSet] = {}
+
+
+def register_state_set(name: str, states) -> StateSet:
+    """Register a state set (validated: an identifier, a subset of `CELL_STATES`). Re-registering the same states is a
+    no-op; different states under a registered name are refused."""
+    s = StateSet(name=name, states=tuple(states))
+    if name in STATE_SETS and STATE_SETS[name] != s:
+        raise ValueError(f"state set '{name}' is registered with other states ({', '.join(STATE_SETS[name].states)})")
+    STATE_SETS[name] = s
+    return s
+
+
+CountStates = register_state_set("CountStates", ("measured", "not_measured", "nothing_found")).states
+MemberStates = register_state_set("MemberStates", ("measured", "not_measured", "not_permitted", "nothing_found")).states
+
+
+# ── fields and shapes (§5) ──────────────────────────────────────────────────────────────────────────────────────
+
+_SCALAR = "|".join(FIELD_TYPES)
+_TYPE_PATTERN = re.compile(rf"(?:{_SCALAR})|list<(?:{_SCALAR})>|map<\s*string\s*,\s*(?:{_SCALAR})\s*>|"
+                           r"representation/[A-Za-z0-9_.-]+")
+
+
+class Companion(_Strict):
+    """A companion a cell carries, with the named set (or the list) its value is narrowed to."""
+    name: str
+    valid_values: str | list[str] | None = None
+
+
+class Field(_Strict):  # noqa: F811 (pydantic's Field is imported as _Default)
+    """One field (§5), declared in exactly one place: the `out` of the stage that produces it, or a registered shape.
+
+    `name` is the data key, an identifier (a dot is a path); `label` the column name shown. A `cell` is a value with
+    companions (`state`, `completeness`, ...); a cell with no companions list carries `state` only. A `dataset` is
+    nested rows of the `shape` it names. A `representation` is a pre-built rendering of `type`
+    `representation/<format>` (or `format`, the note's short spelling)."""
+    name: str
+    label: str = ""
+    kind: Literal["data", "cell", "representation", "dataset"] = "data"
+    type: str = ""
+    unit: str = ""
+    #: The spec a click on the field drills into.
+    detail_spec: str = ""
+    #: A data field's allowed values, or the name of a registered value set.
+    valid_values: str | list[str] | None = None
+    #: `dataset` only: the registered shape of its rows.
+    shape: str = ""
+    #: `cell` only: each a companion name (any value of its shared vocabulary) or `{name, valid_values}`.
+    companions: list[str | Companion] | None = None
+    #: `representation` only: the short spelling of `type: representation/<format>`.
+    format: str = ""
+    #: A table's `cell` column only: the measure the column is the per-member value of. Required there (the absence
+    #: sentence comes from the measure), ignored on any other field.
+    measure: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _short_forms(cls, data):
+        if isinstance(data, dict) and data.get("kind") == "representation" and data.get("format") and not data.get("type"):
+            data = {**data, "type": f"representation/{data['format']}"}
+        return data
+
+    @model_validator(mode="after")
+    def _shape(self) -> "Field":
+        if not re.fullmatch(FIELD_NAME_PATTERN, self.name or ""):
+            why = "a dot is a path, never part of a name" if "." in (self.name or "") else \
+                f"a field name matches {FIELD_NAME_PATTERN}"
+            raise ValueError(f"field name '{self.name}' is not an identifier: {why}")
+        label = f"field '{self.name}'"
+        if not _words(self.label):
+            if self.kind != "representation":
+                raise ValueError(f"{label} declares no label: say the column name a person reads")
+            self.label = self.name
+        if self.kind == "dataset":
+            if not _words(self.shape):
+                raise ValueError(f"{label} is a dataset and names no shape: a list of rows is a dataset of a shape")
+            if _words(self.type):
+                raise ValueError(f"{label} is a dataset and declares type '{self.type}': its rows' shape is its type")
+        else:
+            if _words(self.shape):
+                raise ValueError(f"{label} names a shape and is a '{self.kind}' field: a shape belongs to a dataset")
+            if not _words(self.type):
+                raise ValueError(f"{label} declares no type ({', '.join(FIELD_TYPES)}, list<T>, map<string,T>)")
+            if not _TYPE_PATTERN.fullmatch(self.type):
+                raise ValueError(f"{label} type '{self.type}' is not a field type ({', '.join(FIELD_TYPES)}, "
+                                 "list<T>, map<string,T>, representation/<format>)")
+            is_rep = self.type.startswith("representation/")
+            if is_rep != (self.kind == "representation"):
+                raise ValueError(f"{label} is a '{self.kind}' field of type '{self.type}': a representation field, "
+                                 "and only one, has type representation/<format>")
+        if _words(self.format) and self.type != f"representation/{self.format}":
+            raise ValueError(f"{label} declares format '{self.format}' and type '{self.type}': format is the short "
+                             "spelling of a representation field's type")
+        if self.companions is not None and self.kind != "cell":
+            raise ValueError(f"{label} declares companions and is a '{self.kind}' field: companions belong to a cell")
+        self.companions = [Companion(name=c) if isinstance(c, str) else c for c in self.companions] \
+            if self.companions is not None else None
+        names = [c.name for c in self.companions or []]
+        unknown = [n for n in names if n not in CELL_COMPANIONS]
+        if unknown:
+            raise ValueError(f"{label} declares companion {', '.join(unknown)}, which is not a cell companion "
+                             f"({', '.join(CELL_COMPANIONS)})")
+        if len(set(names)) != len(names):
+            raise ValueError(f"{label} declares a companion more than once")
+        for c in self.companions or []:
+            if c.valid_values is not None:
+                _check_narrowing(label, c)
+        return self
+
+    def companion_names(self) -> list[str]:
+        """The companions a cell of this field carries: `state` only when it declares no list; none for a non-cell."""
+        if self.kind != "cell":
+            return []
+        return ["state"] if self.companions is None else [c.name for c in self.companions]
+
+    def states(self) -> tuple[str, ...]:
+        """The states a cell of this field may hold: its `state` companion's set, else every cell state."""
+        state = next((c for c in self.companions or [] if c.name == "state"), None)
+        if state is None or state.valid_values is None:
+            return CELL_STATES
+        return STATE_SETS[state.valid_values].states if isinstance(state.valid_values, str) else tuple(state.valid_values)
+
+
+def _check_narrowing(label: str, c: Companion) -> None:
+    """At load (§2c): a companion's named set exists and is a subset of its shared vocabulary."""
+    vocabulary = COMPANION_VOCABULARIES.get(c.name)
+    if vocabulary is None:
+        raise ValueError(f"{label} narrows companion '{c.name}', which has no closed vocabulary to narrow "
+                         f"(only {', '.join(COMPANION_VOCABULARIES)} do)")
+    if isinstance(c.valid_values, str):
+        if c.name != "state":
+            raise ValueError(f"{label} names a set for companion '{c.name}': only state sets are registered; list "
+                             "the values")
+        if c.valid_values not in STATE_SETS:
+            raise ValueError(f"{label} names state set '{c.valid_values}', which is not registered "
+                             f"({', '.join(STATE_SETS)})")
+        values = STATE_SETS[c.valid_values].states
+    else:
+        values = tuple(c.valid_values)
+    extra = [v for v in values if v not in vocabulary]
+    if not values or extra:
+        raise ValueError(f"{label} narrows '{c.name}' to {', '.join(extra) or 'nothing'}, which is not a subset of "
+                         f"its words ({', '.join(vocabulary)})")
+
+
+class FieldInclude(_Strict):
+    """A shape entry that reuses one field of another shape (`{"include": "CommonRow.description"}`), in its place."""
+    include: str
+
+    @model_validator(mode="after")
+    def _path(self) -> "FieldInclude":
+        if not re.fullmatch(rf"{FIELD_NAME_PATTERN}\.{FIELD_NAME_PATTERN}", self.include or ""):
+            raise ValueError(f"include '{self.include}' is not '<Shape>.<field>'")
+        return self
+
+
+class Shape(_Strict):
+    """A registered shape (§5): the fields it declares, plus those it reuses. `extends` reuses every field of the parent
+    shape, first; an `include` entry reuses one field of another shape, in its place. A reused field is the declarer's
+    one field (one `DataField` in Egeria), never a copy: a shape may not redeclare a field it reuses."""
+    fields: list[Field | FieldInclude] = _Default(default_factory=list)
+    extends: str = ""
+
+    @field_validator("fields", mode="before")
+    @classmethod
+    def _entries(cls, v):
+        if isinstance(v, list):
+            return [FieldInclude.model_validate(e) if isinstance(e, dict) and "include" in e else e for e in v]
+        return v
+
+    def declared(self) -> list[Field]:
+        return [f for f in self.fields if isinstance(f, Field)]
+
+
+#: The registered shapes, by name (the registry's CONFIG tier, §5 "Registered shapes replace the Python column
+#: constants"). A table names one by `shape`; a dataset field by its `shape`.
+SHAPES: dict[str, Shape] = {}
+
+
+def register_shape(name: str, shape: "Shape | dict") -> Shape:
+    """Register a shape, checked against the registry: its parent and includes exist, and it declares no field it
+    reuses (§5 "Field names are shared, not copied"). Re-registering an equal shape is a no-op."""
+    if not re.fullmatch(FIELD_NAME_PATTERN, name or ""):
+        raise ValueError(f"shape name '{name}' is not an identifier")
+    s = shape if isinstance(shape, Shape) else Shape.model_validate(shape)
+    if name in SHAPES:
+        if SHAPES[name] != s:
+            raise ValueError(f"shape '{name}' is registered with other fields")
+        return s
+    resolve_fields(s, name)   # refuses what does not resolve
+    SHAPES[name] = s
+    return s
+
+
+def resolve_fields(shape: "Shape | str", name: str = "") -> list[tuple[str, Field]]:
+    """A shape's fields in order, each with the shape that declares it: the parent's (recursively), then its own
+    entries. Refuses an unknown parent or include, a cycle, and a field declared twice or redeclared."""
+    return _resolve(shape, name, ())
+
+
+def _resolve(shape, name: str, seen: tuple[str, ...]) -> list[tuple[str, Field]]:
+    if isinstance(shape, str):
+        name = shape
+        if name not in SHAPES:
+            raise ValueError(f"shape '{name}' is not registered")
+        shape = SHAPES[name]
+    if name and name in seen:
+        raise ValueError(f"shape '{name}' extends itself ({' -> '.join(seen + (name,))})")
+    seen = seen + ((name,) if name else ())
+    out: list[tuple[str, Field]] = []
+    if _words(shape.extends):
+        if shape.extends not in SHAPES:
+            raise ValueError(f"shape '{name}' extends '{shape.extends}', which is not registered")
+        out += _resolve(shape.extends, shape.extends, seen)
+    for entry in shape.fields:
+        if isinstance(entry, FieldInclude):
+            owner, _, field = entry.include.partition(".")
+            if owner not in SHAPES:
+                raise ValueError(f"shape '{name}' includes {entry.include}: shape '{owner}' is not registered")
+            found = next(((d, f) for d, f in _resolve(owner, owner, seen) if f.name == field), None)
+            if found is None:
+                raise ValueError(f"shape '{name}' includes {entry.include}: '{owner}' has no field '{field}'")
+            out.append(found)
+        else:
+            out.append((name, entry))
+    names = [f.name for _, f in out]
+    for n in sorted({n for n in names if names.count(n) > 1}):
+        declarers = [d or "(inline)" for d, f in out if f.name == n]
+        raise ValueError(f"shape '{name or '(inline)'}' has field '{n}' more than once (declared by "
+                         f"{', '.join(declarers)}): a reused field is shared, never redeclared")
+    return out
+
+
+# ── the table (B1, re-expressed on §5) ──────────────────────────────────────────────────────────────────────────
+
+#: B1's (0.2) column types, read for one minor release: each -> the §5 field type and, for a number that says its
+#: unit in its type, that unit. `state` is not a field type in 0.3 (`TableDeclaration`, legacy read).
+LEGACY_COLUMN_TYPES = {"text": ("string", ""), "integer": ("int", ""), "number": ("float", ""),
+                       "boolean": ("bool", ""), "date": ("datetime", ""), "datetime": ("datetime", ""),
+                       "bytes": ("int", "bytes"), "duration": ("float", "seconds"), "state": ("string", "")}
+
+#: B1 (DESIGN-B1-MEMBER-SCOPED-TABLE-RESULT §2, 0.2): the types a table column may hold. Read only.
+TABLE_COLUMN_TYPES = tuple(LEGACY_COLUMN_TYPES)
 
 #: The owner's cap on the rows a table shows (ruling 2026-11-02, "1,000"): a declaration may lower it, never raise it.
 #: Every row is stored; the cap is for showing.
@@ -422,20 +862,18 @@ TOKENS_PER_CELL = 8
 KEYED_SCOPES = ("member", "field")
 
 
+def _label(name: str) -> str:
+    return " ".join(w[:1].upper() + w[1:] for w in name.replace("_", " ").split())
+
+
 class TableColumn(_Strict):
-    """One column of a table result: a name, a type, and the word a NULL reads as (§2 rule 2: "not measured" is not
-    "none found" is not "not permitted", so each column says its own)."""
+    """A B1 (0.2) table column, read only: `TableDeclaration` converts each to a `Field` (`as_field`) and
+    writes fields. Kept so a 0.2 column is refused with the sentence it was refused with."""
     name: str
     type: str = "text"
-    #: In words, for a number, bytes or duration column: "rows", "bytes", "seconds".
     unit: str = ""
-    #: The word an empty cell reads as ("not counted"). Required on every column that is not a key (checked by the
-    #: table, which knows its keys).
     absence: str = ""
-    #: A `state` column's closed vocabulary, in words.
-    states: list[str] = Field(default_factory=list)
-    #: The measure this column is the per-member value of ("nulls_total"), so the summary and the rows agree by
-    #: construction; checked against the declaration's measures.
+    states: list[str] = _Default(default_factory=list)
     measure_ref: str = ""
 
     @model_validator(mode="after")
@@ -446,7 +884,7 @@ class TableColumn(_Strict):
         if self.type not in TABLE_COLUMN_TYPES:
             raise ValueError(f"{label} type '{self.type}' is not one of the column types "
                              f"({', '.join(TABLE_COLUMN_TYPES)})")
-        if self.type in UNIT_COLUMN_TYPES and not _words(self.unit):
+        if self.type in ("number", "bytes", "duration") and not _words(self.unit):
             raise ValueError(f"{label} is a {self.type} column with no unit: a number never travels without its unit")
         states = [s for s in self.states if _words(s)]
         if self.type == "state" and not states:
@@ -457,19 +895,42 @@ class TableColumn(_Strict):
             raise ValueError(f"{label} declares a state more than once")
         return self
 
+    def as_field(self) -> dict:
+        """The §5 field this column is (the reconciliation table of BRIEF RS-W1-1 §2): types renamed, the unit a type
+        implied made explicit, the per-column absence word dropped (it is the measure's), `measure_ref` -> `measure`
+        on a cell. A 0.2 `state` column is read as a string field whose `valid_values` is the registered state set
+        its (renamed) states equal, else the list itself; a 0.3 table carries state as a cell's companion instead."""
+        ftype, unit = LEGACY_COLUMN_TYPES[self.type]
+        out: dict = {"name": self.name, "label": _label(self.name), "type": ftype}
+        if _words(self.unit) or unit:
+            out["unit"] = _words(self.unit) or unit
+        if self.type == "state":
+            states = tuple(LEGACY_ABSENCE_WORDS.get(s, s) for s in self.states)
+            named = next((n for n, s in STATE_SETS.items() if set(s.states) == set(states)), None)
+            out["valid_values"] = named or list(states)
+        if _words(self.measure_ref):
+            out.update(kind="cell", measure=self.measure_ref)
+        return out
+
 
 class TableDeclaration(_Strict):
     """A table: rows about MEMBERS of a resource (columns, files, datasets), each row keyed by what makes the member one
-    member, with typed columns, a size the declaration caps and a summary it states (DESIGN-B1 §2). A table with no key
+    member, with typed fields, a size the declaration caps and a summary it states (DESIGN-B1 §2). A table with no key
     is a table of one row (the resource as a whole).
 
-    Every row is stored; `max_rows` is how many are SHOWN, and `truncation` says how many were not. The summary measures
-    are computed by the step over all rows and declared beside the table, never added up from the shown slice."""
-    #: A bare string is a `text` column with no absence word yet (`missing()` names it), which keeps the earliest table
-    #: declarations valid.
-    columns: list[TableColumn | str]
-    #: The columns that make a row one row; required at member or field scope, empty for a table of one row.
-    key_fields: list[str] = Field(default_factory=list)
+    Since 0.3 a table's rows are a §5 dataset: its fields are a registered `shape` (the normal case, so Egeria gets one
+    `DataStructure`) or inline `fields`. The table-level rules (key, cap, order, truncation, summary) stay here. A 0.2
+    `columns` list is read with a `LegacyWordWarning` and written as `fields`.
+
+    Every row is stored; `max_rows` is how many are SHOWN, and `truncation` says how many were not: the shown slice is a
+    dataset whose completeness is `lower_bound` when truncated. The summary measures are computed by the step over all
+    rows and declared beside the table, never added up from the shown slice."""
+    #: The registered shape of a row (`SHAPES`); empty when the fields are inline.
+    shape: str = ""
+    #: The row's fields, inline; empty when `shape` names them.
+    fields: list[Field] = _Default(default_factory=list)
+    #: The fields that make a row one row; required at member or field scope, empty for a table of one row.
+    key_fields: list[str] = _Default(default_factory=list)
     #: How many rows are shown, at most: the owner's cap, `TABLE_MAX_ROWS`, which a declaration may only lower.
     max_rows: int = TABLE_MAX_ROWS
     #: The order rows are shown in, in words ("schema, table, column as the catalog lists them").
@@ -478,24 +939,45 @@ class TableDeclaration(_Strict):
     #: stored and the summary counts them all").
     truncation: str = ""
     #: The measures, declared beside the table, that say the whole of it in one sentence; required at member scope.
-    summary: list[str] = Field(default_factory=list)
+    summary: list[str] = _Default(default_factory=list)
 
-    @field_validator("columns", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _bare_is_text(cls, v):
-        return [{"name": c} if isinstance(c, str) else c for c in v] if isinstance(v, list) else v
+    def _legacy_columns(cls, data):
+        if not isinstance(data, dict) or "columns" not in data:
+            return data
+        data = dict(data)
+        columns = data.pop("columns")
+        if data.get("fields") or data.get("shape"):
+            raise ValueError("a table declares columns and fields (or a shape): columns is the 0.2 word, so declare "
+                             "fields or a shape only")
+        if isinstance(columns, list):
+            parsed = [TableColumn(name=c) if isinstance(c, str) else TableColumn.model_validate(c) for c in columns]
+            data["fields"] = [c.as_field() for c in parsed]
+        else:
+            data["fields"] = columns
+        _legacy("columns", "fields", "table")
+        return data
 
     @model_validator(mode="after")
     def _shape(self) -> "TableDeclaration":
+        if _words(self.shape) and self.fields:
+            raise ValueError("a table names a shape and declares fields: its fields are said in one place")
+        if _words(self.shape) and self.shape not in SHAPES:
+            raise ValueError(f"a table names shape '{self.shape}', which is not registered")
         names = self.column_names()
         if not names:
-            raise ValueError("a table declares no columns")
+            raise ValueError("a table declares no fields")
         twice = sorted({n for n in names if names.count(n) > 1})
         if twice:
             raise ValueError(f"a table declares column {', '.join(twice)} more than once")
         missing = [k for k in self.key_fields if k not in names]
         if missing:
             raise ValueError(f"a table's key_fields {', '.join(missing)} are not among its columns")
+        nameless = [f.name for f in self.row_fields() if f.kind == "cell" and not _words(f.measure)]
+        if nameless:
+            raise ValueError(f"a table's cell column {', '.join(nameless)} names no measure: a cell's absence sentence "
+                             "is its measure's, so say which measure it is the per-member value of")
         if self.max_rows < 1:
             raise ValueError(f"a table declares max_rows {self.max_rows}: a table shows at least one row")
         if self.max_rows > TABLE_MAX_ROWS:
@@ -509,28 +991,43 @@ class TableDeclaration(_Strict):
             raise ValueError("a table's summary names a measure twice, or an empty one")
         return self
 
+    def row_fields(self) -> list[Field]:
+        """A row's fields, in declared order: the inline fields, or the registered shape's, resolved."""
+        if _words(self.shape):
+            return [f for _, f in resolve_fields(self.shape)]
+        return list(self.fields)
+
     def column_names(self) -> list[str]:
-        return [c.name for c in self.columns]
+        return [f.name for f in self.row_fields()]
 
-    def column(self, name: str) -> TableColumn | None:
-        return next((c for c in self.columns if c.name == name), None)
+    def column(self, name: str) -> Field | None:
+        return next((f for f in self.row_fields() if f.name == name), None)
 
-    def unworded(self) -> list[str]:
-        """The non-key columns that declare no absence word, in column order."""
-        return [c.name for c in self.columns if c.name not in self.key_fields and not _words(c.absence)]
+    def as_dataset_field(self, name: str = "rows", label: str = "Rows") -> Field:
+        """The table as §5 says it: a `dataset` field whose shape is the table's registered shape (BRIEF RS-W1-1 §2).
+        Needs a registered shape; inline fields have no shape name to give."""
+        if not _words(self.shape):
+            raise ValueError("a table with inline fields is not a registered shape: register its fields "
+                             "(`register_shape`) and name the shape")
+        return Field(name=name, label=label, kind="dataset", shape=self.shape)
 
-    def fields(self) -> list[str]:
-        """The key, then the other columns, in declared order: a row's fields as a reader shows them."""
-        return list(self.key_fields) + [n for n in self.column_names() if n not in self.key_fields]
+    def fields_in_order(self) -> list[str]:
+        """The key, then the other fields, in declared order: a row's fields as a reader shows them."""
+        names = self.column_names()
+        return list(self.key_fields) + [n for n in names if n not in self.key_fields]
 
     def lacks(self) -> list[str]:
-        """What a member- or field-scoped table still owes (Architect ruling, 2026-11-02): its key, a typed column with
-        an absence word for every non-key column, its truncation, its order and its summary. [] when it owes nothing."""
+        """What a member- or field-scoped table still owes (Architect ruling, 2026-11-02): its key, its truncation, its
+        order and its summary. [] when it owes nothing. (0.2 also asked an absence word of every non-key column; since
+        0.3 a cell's sentence is its measure's, and a cell that names no measure is refused.)"""
         out = ["table.key_fields"] if not self.key_fields else []
-        out += [f"table.columns.{n}.absence" for n in self.unworded()]
         out += [f"table.{f}" for f in ("truncation", "order") if not _words(getattr(self, f))]
         out += ["table.summary"] if not self.summary else []
         return out
+
+    def truncation_words(self, shown: int, total: int) -> str:
+        """The shown slice's `lower_bound` rendering: the truncation sentence filled; "" when nothing was dropped."""
+        return self.truncation.format(shown=shown, total=total) if total > shown and _words(self.truncation) else ""
 
     def extent(self) -> ExtentDeclaration | None:
         """The extent a table is (§5: "a table result's extent IS its table"): its fields, its cap, its order and
@@ -538,7 +1035,7 @@ class TableDeclaration(_Strict):
         compiler can quote a prefix. None until the table declares an order and a truncation."""
         if not (_words(self.order) and _words(self.truncation)):
             return None
-        fields = self.fields()
+        fields = self.fields_in_order()
         per_row = len(fields) * TOKENS_PER_CELL
         return ExtentDeclaration(name="rows", fields=fields, rows=self.max_rows, order=self.order,
                                  truncation=self.truncation, token_cost=self.max_rows * per_row,
@@ -556,9 +1053,9 @@ class Declaration(_Strict):
     result_kind_note: str = ""
     #: Required for the numeric kinds; optional for finding, proposal, list and table, which are told by their block
     #: ("4 findings" is a count that is still welcome).
-    measures: list[MeasureDeclaration] = Field(default_factory=list)
+    measures: list[MeasureDeclaration] = _Default(default_factory=list)
     absence: AbsenceSentences
-    extents: list[ExtentDeclaration] = Field(default_factory=list)
+    extents: list[ExtentDeclaration] = _Default(default_factory=list)
     confidence: ConfidenceDeclaration | None = None
     #: The question ids this answers. None means not yet declared; [] declares that it answers none, which keeps it
     #: runnable and rendered and out of every chat answer (§3 step 1). For Resource Explorer's own analyses it is
@@ -616,6 +1113,12 @@ class Declaration(_Strict):
             blank = [a for a in self.answers if not _words(a)]
             if blank:
                 raise ValueError("answers carries an empty question id")
+        exact = [m.name for m in self.measures if m.uncertainty is not None and self.confidence_of(m)
+                 and self.confidence_of(m).form == "measured"]
+        if exact:
+            raise ValueError(f"measure {', '.join(exact)} declares uncertainty and confidence 'measured': an exact read "
+                             "has no spread, so declare the confidence that has one (estimated, inferred) or leave "
+                             "uncertainty out")
         generated = [m.name for m in self.measures if m.annotation and self.confidence_of(m)
                      and self.confidence_of(m).form == "generated"]
         if generated:
@@ -643,7 +1146,7 @@ class Declaration(_Strict):
             block = getattr(self, attr)
             if self.result_kind == kind and block is None:
                 need = {"finding": "what_field (and where_field, if it is about a place)", "proposal": "candidate_field and decided_by",
-                        "list": "item_fields, order and key_field", "table": "columns and key_fields"}[kind]
+                        "list": "item_fields, order and key_field", "table": "a shape (or fields) and key_fields"}[kind]
                 raise ValueError(f"result_kind '{kind}' declares no {attr} block: say {need} so the headline, the "
                                  "publish table and Chat read it from the declaration")
             if self.result_kind != kind and block is not None:
@@ -661,21 +1164,22 @@ class Declaration(_Strict):
         """A table's rules that need the rest of the declaration (DESIGN-B1 §2-3; Architect ruling 2026-11-02).
 
         The gate is the declaration's SCOPE. A table at member or field scope is about the members of a resource and
-        owes its key, typed columns with absence words, truncation, order and summary (`TableDeclaration.lacks`). For
+        owes its key, truncation, order and summary (`TableDeclaration.lacks`). For
         one release a lack is REPORTED by `missing()`, never refused, so a pre-B1 declaration keeps loading until it
         converts (convert-as-touched). Once it owes nothing it is a table result (`is_table_result`): its extent is
         derived from the table, and an extent written beside a derived one is refused.
 
         A resource-scoped or unscoped table keeps bare columns and hand-written extents. Whatever the scope, a summary
-        or a measure_ref names a declared measure."""
+        or a cell column's measure names a declared measure."""
         t = self.table
         declared = {m.name for m in self.measures}
         unknown = [s for s in t.summary if s not in declared]
         if unknown:
             raise ValueError(f"a table's summary names {', '.join(unknown)}, which is not a declared measure")
-        refs = [f"{c.name} -> {c.measure_ref}" for c in t.columns if _words(c.measure_ref) and c.measure_ref not in declared]
+        refs = [f"{f.name} -> {f.measure}" for f in t.row_fields()
+                if f.kind == "cell" and _words(f.measure) and f.measure not in declared]
         if refs:
-            raise ValueError(f"a table column's measure_ref names no declared measure ({', '.join(refs)})")
+            raise ValueError(f"a table cell column's measure names no declared measure ({', '.join(refs)})")
         if self.scope not in KEYED_SCOPES:
             return
         derived = t.extent()
@@ -704,8 +1208,8 @@ class Declaration(_Strict):
 
     def missing(self) -> list[str]:
         """The full-declaration fields this one does not declare yet, in `FULL_FIELDS` order, then, for a member- or
-        field-scoped table, what it still owes ("table.key_fields", "table.columns.b.absence", "table.truncation",
-        "table.order", "table.summary"); [] when complete."""
+        field-scoped table, what it still owes ("table.key_fields", "table.truncation", "table.order",
+        "table.summary"); [] when complete."""
         out = [f for f, absent in (("extents", not self.extents), ("confidence", self.confidence is None),
                                    ("answers", self.answers is None), ("scope", self.scope is None)) if absent]
         if self.table is not None and self.scope in KEYED_SCOPES:
@@ -717,6 +1221,7 @@ class Declaration(_Strict):
 
 
 MeasureDeclaration.model_rebuild()
+Declaration.model_rebuild()
 
 
 def refusal(exc: Exception) -> str:
