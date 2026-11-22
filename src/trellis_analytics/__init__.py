@@ -2,4 +2,4 @@
 from trellis_analytics.envelope import Envelope, ResultState
 
 __all__ = ["Envelope", "ResultState"]
-__version__ = "0.4.0"
+__version__ = "0.5.0"

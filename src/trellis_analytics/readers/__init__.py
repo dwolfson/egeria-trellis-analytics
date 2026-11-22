@@ -68,6 +68,13 @@ class OdsRead(Protocol):
     def filesystem_walk_files(self, slug: str, run_id: str) -> list[dict]: ...
     def filesystem_walk_not_walked(self, slug: str, run_id: str) -> dict | None: ...
     def filesystem_hash_matches(self, slug: str, run_id: str) -> dict: ...
+    def filesystem_own_reads(self, slug: str, since: str = "") -> list[dict]:
+        """The runs in which Resource Explorer itself opened this file system's files after the walk (data-file
+        profiles, narrative files, data-class matches), oldest first, with surveyed_at at or after `since` ("" = all):
+        `[{"step", "surveyed_at", "started_at"}]`. `started_at` is when the run began where the run recorded it, else
+        None (then `surveyed_at`, the time the run was recorded, is all that is known: it may be after the files were
+        read). Times only: no path, no name, no content. An unreadable store raises `OdsUnreadable`, never `[]`."""
+        ...
 
 
 #: The typed reads, by name, in the Protocol's order.

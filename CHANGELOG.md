@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+The reader seam gains one read (TR-114). A new member of a runtime-checkable Protocol is a widening of the contract an
+implementation must meet, so this is a minor release, not 0.4.x: a consumer pinned `>=0.4,<0.5` never sees it.
+
+- **`OdsRead.filesystem_own_reads(slug, since="")`**: the runs in which Resource Explorer itself opened a file system's
+  files after the walk (data-file profiles, narrative files, data-class matches), as `{step, surveyed_at, started_at}`.
+  `fs_activity` uses it to count accesses at or after Resource Explorer's first read apart from a person's reads.
+
 ## 0.4.0
 
 Declared shapes, the routine declaration, and the first renderer (BRIEF RS-W2-1b, library part; owner decisions D2, D4).
